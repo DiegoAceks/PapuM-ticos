@@ -38,6 +38,11 @@ python -m streamlit run app.py
 Esto abrirá automáticamente tu navegador en `http://localhost:8501` con la
 aplicación corriendo.
 
+## Uso
+
+- Genera el grafo (aleatorio o manual) en el panel lateral, elige origen y destino y ejecuta Dijkstra paso a paso.
+- **Opcional:** en cualquier gráfico puedes **arrastrar los nodos con el mouse (o el dedo)** para ordenarlos a tu gusto; las flechas y los pesos los siguen. El orden se conserva entre pasos y pestañas. El botón **↺ Restablecer posiciones** vuelve al orden automático.
+
 ## Problemas comunes
 
 - **`pip` o `streamlit` "no se reconoce como un comando"**: usa siempre
@@ -47,14 +52,13 @@ aplicación corriendo.
 - **`python` no se reconoce**: Python no está instalado o no se marcó
   "Add to PATH" durante la instalación. Reinstala desde python.org
   marcando esa casilla, y abre una terminal nueva después.
-- **La app no me deja hacer zoom / arrastrar el grafo**: es normal, está
   desactivado a propósito para que el scroll de la página no interfiera.
 
 ## Estructura del proyecto
 
 | Archivo | Contenido |
 |---|---|
-| `app.py` | Interfaz (Streamlit + Plotly) |
+| `app.py` | Interfaz (Streamlit + grafo SVG interactivo con nodos arrastrables) |
 | `grafo.py` | Representación del grafo (matriz de adyacencia) |
 | `dijkstra.py` | Algoritmo de Dijkstra paso a paso + reconstrucción de caminos mínimos |
 | `conectividad.py` | Verificación de componentes conexas |
