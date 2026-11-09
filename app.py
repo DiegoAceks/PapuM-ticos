@@ -119,16 +119,6 @@ def construir_grafo_networkx(grafo):
 
 
 def calcular_layout(grafo):
-    """
-    Calcula la posición de los nodos mediante un layout jerárquico propio
-    (sin depender de librerías externas como Graphviz): cada nodo se ubica
-    en una columna según la longitud del camino más largo que llega a él
-    desde algún nodo sin predecesores (su "nivel"), y los nodos de un
-    mismo nivel se distribuyen verticalmente. Cuando un nivel tiene un
-    solo nodo, se aplica un pequeño desplazamiento en zigzag para evitar
-    que cadenas largas queden perfectamente alineadas, lo que haría que
-    las aristas "salteadas" se superpongan visualmente con las directas.
-    """
     niveles = [0] * grafo.n
     for v in range(grafo.n):
         for u in range(v):
@@ -166,7 +156,7 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
   #reset { font: inherit; color: #475569; background: #F5F3FF; border: 1px solid #DDD6FE;
            border-radius: 8px; padding: 2px 10px; cursor: pointer; }
   #reset:hover { background: #EDE9FE; }
-  svg { display: block; width: 100%; height: 420px; user-select: none; -webkit-user-select: none; }
+  svg { display: block; width: 100%; height: __ALTURA__px; user-select: none; -webkit-user-select: none; }
   .node { cursor: grab; touch-action: none; }
   .node.drag { cursor: grabbing; }
   .node:hover circle { stroke-width: 3.5; }
@@ -177,13 +167,13 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
     <span>🖱️ Arrastra los nodos para ordenarlos (opcional)</span>
     <button id="reset" type="button">↺ Restablecer posiciones</button>
   </div>
-  <svg id="g" viewBox="0 0 800 420" role="img" aria-label="Grafo dirigido con pesos"></svg>
+  <svg id="g" viewBox="0 0 800 __ALTURA__" role="img" aria-label="Grafo dirigido con pesos"></svg>
 </div>
 <script>
 (function () {
   var D = __DATOS__;
   var NS = "http://www.w3.org/2000/svg";
-  var H = 420, PX = 44, PY = 40, R = 22, GAP = 3;
+  var H = __ALTURA__, PX = 44, PY = 40, R = 22, GAP = 3;
   var wrap = document.getElementById("wrap");
   var svg = document.getElementById("g");
   var N = D.n, W = 800;
@@ -196,7 +186,6 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
   }
   function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
 
-  // Posición inicial: el layout jerárquico calculado en Python, normalizado a 0..1.
   var xs = D.pos.map(function (p) { return p[0]; });
   var ys = D.pos.map(function (p) { return p[1]; });
   var minx = Math.min.apply(null, xs), maxx = Math.max.apply(null, xs);
@@ -206,7 +195,6 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
             maxy > miny ? 1 - (p[1] - miny) / (maxy - miny) : 0.5];
   });
 
-  // Las posiciones movidas por el usuario se guardan en el navegador (si está permitido).
   function cargar() {
     try {
       var s = localStorage.getItem(D.key);
@@ -217,18 +205,17 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
       })) {
         return a.map(function (p) { return [clamp(+p[0], 0, 1), clamp(+p[1], 0, 1)]; });
       }
-    } catch (e) { /* sin almacenamiento: se usa la posición por defecto */ }
+    } catch (e) { }
     return null;
   }
   function guardar() {
-    try { localStorage.setItem(D.key, JSON.stringify(pos)); } catch (e) { /* ignorar */ }
+    try { localStorage.setItem(D.key, JSON.stringify(pos)); } catch (e) { }
   }
   var pos = cargar() || defecto.map(function (p) { return p.slice(); });
 
   function px(i) { return PX + pos[i][0] * (W - 2 * PX); }
   function py(i) { return PY + pos[i][1] * (H - 2 * PY); }
 
-  // Puntas de flecha (una normal y una más grande para los caminos mínimos).
   var defs = el("defs", {}, svg);
   function marcador(id, color, L) {
     var m = el("marker", { id: id, viewBox: "0 0 10 10", refX: 0, refY: 5,
@@ -242,7 +229,6 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
   var capaEtiquetas = el("g", {}, svg);
   var capaNodos = el("g", {}, svg);
 
-  // Los caminos resaltados se dibujan al final para quedar por encima.
   var aristas = D.edges.slice().sort(function (a, b) {
     return (a.hl ? 1 : 0) - (b.hl ? 1 : 0);
   }).map(function (e) {
@@ -275,18 +261,17 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
     return g;
   });
 
-  // Las flechas y los pesos siguen a los nodos: se recalculan a partir de sus posiciones.
   function actualizarAristas() {
     aristas.forEach(function (a) {
       var x1 = px(a.e.u), y1 = py(a.e.u), x2 = px(a.e.v), y2 = py(a.e.v);
       var dx = x2 - x1, dy = y2 - y1, d = Math.sqrt(dx * dx + dy * dy);
-      if (d < 2 * (R + GAP) + a.AL + 2) {          // nodos casi encimados: no cabe la flecha
+      if (d < 2 * (R + GAP) + a.AL + 2) {
         a.linea.style.display = "none"; a.g.style.display = "none"; return;
       }
       a.linea.style.display = ""; a.g.style.display = "";
       var ux = dx / d, uy = dy / d;
-      var sx = x1 + ux * (R + GAP), sy = y1 + uy * (R + GAP);   // borde del nodo origen
-      var tx = x2 - ux * (R + GAP), ty = y2 - uy * (R + GAP);   // punta, en el borde del destino
+      var sx = x1 + ux * (R + GAP), sy = y1 + uy * (R + GAP);
+      var tx = x2 - ux * (R + GAP), ty = y2 - uy * (R + GAP);
       a.linea.setAttribute("x1", sx); a.linea.setAttribute("y1", sy);
       a.linea.setAttribute("x2", tx - ux * a.AL); a.linea.setAttribute("y2", ty - uy * a.AL);
       a.g.setAttribute("transform", "translate(" + (sx + tx) / 2 + "," + (sy + ty) / 2 + ")");
@@ -307,7 +292,6 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
     }
   }
 
-  // Arrastre con mouse o dedo (pointer events).
   var arr = null;
   function puntoSVG(ev) {
     var m = svg.getScreenCTM && svg.getScreenCTM();
@@ -323,9 +307,9 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
     ev.preventDefault();
     arr = { i: i, g: g, dx: px(i) - p.x, dy: py(i) - p.y };
     g.classList.add("drag");
-    capaNodos.appendChild(g);                       // el nodo arrastrado queda al frente
+    capaNodos.appendChild(g);
     if (g.setPointerCapture && ev.pointerId !== undefined) {
-      try { g.setPointerCapture(ev.pointerId); } catch (e) { /* ignorar */ }
+      try { g.setPointerCapture(ev.pointerId); } catch (e) { }
     }
   }
   function mover(ev) {
@@ -346,7 +330,7 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
 
   document.getElementById("reset").addEventListener("click", function () {
     pos = defecto.map(function (p) { return p.slice(); });
-    try { localStorage.removeItem(D.key); } catch (e) { /* ignorar */ }
+    try { localStorage.removeItem(D.key); } catch (e) { }
     dibujar();
   });
 
@@ -360,8 +344,6 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
 
 
 def _mostrar_html(html, alto):
-    """Muestra HTML en un iframe: st.iframe (Streamlit actual) o, en versiones
-    antiguas, components.html."""
     if hasattr(st, "iframe"):
         st.iframe(html, height=alto)
     else:
@@ -371,14 +353,7 @@ def _mostrar_html(html, alto):
 
 def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
                    visitados=None, aristas_resaltadas=None, distancias=None,
-                   key=None):
-    """
-    Dibuja el grafo como un SVG interactivo: los nodos se pueden arrastrar con
-    el mouse (o el dedo) y las flechas y los pesos los siguen. Es opcional: si
-    no se mueve nada, se ve el layout jerárquico calculado en calcular_layout.
-    Las posiciones movidas se recuerdan en el navegador mientras el grafo (sus
-    conexiones) no cambie, así que se conservan entre pasos y pestañas.
-    """
+                   key=None, expandido=False):
     visitados = visitados or []
     aristas_resaltadas = set(aristas_resaltadas or [])
 
@@ -406,7 +381,6 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
         {"u": u, "v": v, "w": peso, "hl": (u, v) in aristas_resaltadas}
         for u, v, peso in grafo.obtener_aristas()
     ]
-    # Las posiciones guardadas dependen solo de las conexiones del grafo.
     firma = hashlib.md5(
         ",".join(f"{a['u']}-{a['v']}" for a in aristas).encode()
     ).hexdigest()[:10]
@@ -419,12 +393,15 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
         "edges": aristas,
         "colores": {"arista": COLOR["arista"], "resaltada": COLOR["arista_resaltada"]},
     }
+    
+    altura = 700 if expandido else 420
     html = (
         _HTML_GRAFO
         .replace("__KEY__", str(key))
+        .replace("__ALTURA__", str(altura))
         .replace("__DATOS__", json.dumps(datos).replace("<", "\u003c"))
     )
-    _mostrar_html(html, 456)
+    _mostrar_html(html, altura + 36)
 
 
 # ---------------------------------------------------------------------------
@@ -563,15 +540,20 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------------------------
-# Encabezado
+# Encabezado principal y botón de expansión
 # ---------------------------------------------------------------------------
 
-st.markdown(
-    f"<h1>🧭 Problema del camino mínimo</h1>"
-    f"<p style='color:#64748B; margin-top:-8px;'>Algoritmo de Dijkstra sobre un grafo dirigido y acíclico — "
-    f"ejecución interactiva, paso a paso.</p>",
-    unsafe_allow_html=True,
-)
+col_tit, col_exp = st.columns([3, 1])
+with col_tit:
+    st.markdown(
+        f"<h1>🧭 Problema del camino mínimo</h1>"
+        f"<p style='color:#64748B; margin-top:-8px;'>Algoritmo de Dijkstra sobre un grafo dirigido y acíclico — "
+        f"ejecución interactiva, paso a paso.</p>",
+        unsafe_allow_html=True,
+    )
+with col_exp:
+    st.markdown("<br>", unsafe_allow_html=True)
+    expandido = st.toggle("🗖 Expandir pizarra del grafo", value=False)
 
 grafo = st.session_state.grafo
 
@@ -592,7 +574,7 @@ tab_grafo, tab_ejecucion, tab_resultado = st.tabs(
 # ---------------------------------------------------------------------------
 
 with tab_grafo:
-    col_sel, col_vis = st.columns([1, 2])
+    col_sel, col_vis = st.columns([1, 2] if not expandido else [1, 3])
 
     with col_sel:
         st.markdown("#### Selecciona los vértices")
@@ -634,7 +616,7 @@ with tab_grafo:
 
     with col_vis:
         leyenda_grafo()
-        dibujar_grafo(grafo, layout, origen=origen, destino=destino, key="grafo_tab1")
+        dibujar_grafo(grafo, layout, origen=origen, destino=destino, key="grafo_tab1", expandido=expandido)
 
 # ---------------------------------------------------------------------------
 # Pestaña 2: Ejecución paso a paso
@@ -688,7 +670,7 @@ with tab_ejecucion:
                     )
                 with col_der:
                     leyenda_grafo()
-                    dibujar_grafo(grafo, layout, origen=origen, destino=destino, key="grafo_tab2_inicial")
+                    dibujar_grafo(grafo, layout, origen=origen, destino=destino, key="grafo_tab2_inicial", expandido=expandido)
             else:
                 if idx == 1:
                     distancias_antes = [0 if v == origen else INFINITO for v in range(grafo.n)]
@@ -747,7 +729,7 @@ with tab_ejecucion:
                     dibujar_grafo(
                         grafo, layout, origen=origen, destino=destino,
                         actual=paso.nodo_actual, visitados=visitados_hasta_ahora,
-                        distancias=paso.distancias, key=f"grafo_tab2_paso_{idx}",
+                        distancias=paso.distancias, key=f"grafo_tab2_paso_{idx}", expandido=expandido,
                     )
 
                     tabla = []
@@ -810,7 +792,7 @@ with tab_resultado:
                 grafo, layout, origen=origen, destino=destino,
                 visitados=list(range(grafo.n)),
                 aristas_resaltadas=aristas_resaltadas,
-                distancias=distancias, key="grafo_tab3_resultado",
+                distancias=distancias, key="grafo_tab3_resultado", expandido=expandido,
             )
 
             resumen = (
