@@ -25,11 +25,18 @@ class Grafo:
         self.n = n
         self.matriz = [[0 for _ in range(n)] for _ in range(n)]
 
+    def grado(self, nodo):
+        """Devuelve el número total de conexiones (entrantes + salientes) del nodo."""
+        entrantes = sum(1 for i in range(self.n) if self.matriz[i][nodo] != 0)
+        salientes = sum(1 for j in range(self.n) if self.matriz[nodo][j] != 0)
+        return entrantes + salientes
+
     def agregar_arista(self, origen, destino, peso):
         """
         Agrega una arista dirigida origen -> destino con el peso dado.
         Solo se permite si origen < destino, para garantizar que el
         grafo resultante sea acíclico por construcción.
+        Además, limita a un máximo de 3 aristas totales por nodo.
         """
         if origen == destino:
             raise ValueError("No se permiten auto-ciclos (origen == destino).")
@@ -42,53 +49,58 @@ class Grafo:
         if peso <= 0:
             raise ValueError("El peso de la arista debe ser un número positivo.")
 
+        # Si no existe la arista, verificar que ninguno de los dos nodos supere las 3 conexiones
+        if self.matriz[origen][destino] == 0:
+            if self.grado(origen) >= 3:
+                raise ValueError(f"El nodo {origen} ya tiene 3 conexiones (máximo permitido).")
+            if self.grado(destino) >= 3:
+                raise ValueError(f"El nodo {destino} ya tiene 3 conexiones (máximo permitido).")
+
         self.matriz[origen][destino] = peso
 
     def generar_aleatorio(self, densidad=0.4, peso_min=1, peso_max=20):
         """
-        Genera un grafo aleatorio dirigido y acíclico.
-
-        Se recorren únicamente los pares (i, j) con i < j, de modo que
-        toda arista generada respeta el orden de índices y el grafo
-        queda garantizado como acíclico sin necesidad de validación
-        adicional.
-
-        Además, garantiza que TODOS los nodos tengan como mínimo 2
-        conexiones (aristas incidentes: entrantes + salientes >= 2).
+        Genera un grafo aleatorio dirigido y acíclico asegurando que cada nodo
+        tenga como mínimo 2 conexiones y como máximo 3 conexiones totales
+        (aristas incidentes: entrantes + salientes entre 2 y 3).
         """
-        for i in range(self.n):
-            for j in range(i + 1, self.n):
-                if random.random() < densidad:
-                    peso = random.randint(peso_min, peso_max)
-                    self.matriz[i][j] = peso
+        self.limpiar()
 
-        # 1. Asegurar que cada nodo (salvo el último) tenga al menos una arista saliente
+        # Construcción inicial respetando el límite máximo de 3 conexiones por nodo
+        pares = [(i, j) for i in range(self.n) for j in range(i + 1, self.n)]
+        random.shuffle(pares)
+        for i, j in pares:
+            if random.random() < densidad:
+                if self.grado(i) < 3 and self.grado(j) < 3:
+                    self.matriz[i][j] = random.randint(peso_min, peso_max)
+
+        # 1. Asegurar al menos una arista saliente (salvo el último nodo)
         for i in range(self.n - 1):
-            if all(self.matriz[i][j] == 0 for j in range(i + 1, self.n)):
-                j = random.randint(i + 1, self.n - 1)
-                self.matriz[i][j] = random.randint(peso_min, peso_max)
+            salientes = sum(1 for j in range(i + 1, self.n) if self.matriz[i][j] != 0)
+            if salientes == 0 and self.grado(i) < 3:
+                candidatos = [j for j in range(i + 1, self.n) if self.matriz[i][j] == 0 and self.grado(j) < 3]
+                if candidatos:
+                    j = random.choice(candidatos)
+                    self.matriz[i][j] = random.randint(peso_min, peso_max)
 
-        # 2. Asegurar que cada nodo (salvo el primero) tenga al menos una arista entrante
+        # 2. Asegurar al menos una arista entrante (salvo el primer nodo)
         for j in range(1, self.n):
-            if all(self.matriz[i][j] == 0 for i in range(j)):
-                i = random.randint(0, j - 1)
-                self.matriz[i][j] = random.randint(peso_min, peso_max)
+            entrantes = sum(1 for i in range(j) if self.matriz[i][j] != 0)
+            if entrantes == 0 and self.grado(j) < 3:
+                candidatos = [i for i in range(j) if self.matriz[i][j] == 0 and self.grado(i) < 3]
+                if candidatos:
+                    i = random.choice(candidatos)
+                    self.matriz[i][j] = random.randint(peso_min, peso_max)
 
-        # 3. Garantizar que CADA nodo tenga como mínimo 2 conexiones en total (entrantes + salientes >= 2)
+        # 3. Asegurar que ningún nodo quede con menos de 2 conexiones, sin superar 3
         for v in range(self.n):
-            while True:
-                entrantes = sum(1 for u in range(v) if self.matriz[u][v] != 0)
-                salientes = sum(1 for w in range(v + 1, self.n) if self.matriz[v][w] != 0)
-                if entrantes + salientes >= 2:
-                    break
-
-                # Buscar todos los candidatos posibles para conectar con v respetando u < w (DAG)
+            while self.grado(v) < 2:
                 candidatos = []
                 for u in range(v):
-                    if self.matriz[u][v] == 0:
+                    if self.matriz[u][v] == 0 and self.grado(u) < 3:
                         candidatos.append((u, v))
                 for w in range(v + 1, self.n):
-                    if self.matriz[v][w] == 0:
+                    if self.matriz[v][w] == 0 and self.grado(w) < 3:
                         candidatos.append((v, w))
 
                 if not candidatos:
