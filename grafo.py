@@ -46,9 +46,15 @@ class Grafo:
 
     def generar_aleatorio(self, densidad=0.4, peso_min=1, peso_max=20):
         """
-        Genera un grafo aleatorio dirigido y acíclico asegurando que cada nodo
-        tenga al menos 2 conexiones (grado total: entrantes + salientes >= 2,
-        siempre que la estructura acíclica lo permita).
+        Genera un grafo aleatorio dirigido y acíclico.
+
+        Se recorren únicamente los pares (i, j) con i < j, de modo que
+        toda arista generada respeta el orden de índices y el grafo
+        queda garantizado como acíclico sin necesidad de validación
+        adicional.
+
+        Además, garantiza que TODOS los nodos tengan como mínimo 2
+        conexiones (aristas incidentes: entrantes + salientes >= 2).
         """
         for i in range(self.n):
             for j in range(i + 1, self.n):
@@ -56,29 +62,40 @@ class Grafo:
                     peso = random.randint(peso_min, peso_max)
                     self.matriz[i][j] = peso
 
-        # Garantizar mínimo 2 conexiones por nodo (entrantes + salientes)
+        # 1. Asegurar que cada nodo (salvo el último) tenga al menos una arista saliente
+        for i in range(self.n - 1):
+            if all(self.matriz[i][j] == 0 for j in range(i + 1, self.n)):
+                j = random.randint(i + 1, self.n - 1)
+                self.matriz[i][j] = random.randint(peso_min, peso_max)
+
+        # 2. Asegurar que cada nodo (salvo el primero) tenga al menos una arista entrante
+        for j in range(1, self.n):
+            if all(self.matriz[i][j] == 0 for i in range(j)):
+                i = random.randint(0, j - 1)
+                self.matriz[i][j] = random.randint(peso_min, peso_max)
+
+        # 3. Garantizar que CADA nodo tenga como mínimo 2 conexiones en total (entrantes + salientes >= 2)
         for v in range(self.n):
             while True:
-                # Contar grado total del nodo v
-                entrantes = sum(1 for u in range(self.n) if self.matriz[u][v] != 0)
-                salientes = sum(1 for w in range(self.n) if self.matriz[v][w] != 0)
-                grado_total = entrantes + salientes
-
-                if grado_total >= 2:
+                entrantes = sum(1 for u in range(v) if self.matriz[u][v] != 0)
+                salientes = sum(1 for w in range(v + 1, self.n) if self.matriz[v][w] != 0)
+                if entrantes + salientes >= 2:
                     break
 
-                # Si le faltan conexiones, intentamos agregar una arista válida
-                if salientes < 1 and v < self.n - 1:
-                    w = random.randint(v + 1, self.n - 1)
-                    if self.matriz[v][w] == 0:
-                        self.matriz[v][w] = random.randint(peso_min, peso_max)
-                        continue
-                if entrantes < 1 and v > 0:
-                    u = random.randint(0, v - 1)
+                # Buscar todos los candidatos posibles para conectar con v respetando u < w (DAG)
+                candidatos = []
+                for u in range(v):
                     if self.matriz[u][v] == 0:
-                        self.matriz[u][v] = random.randint(peso_min, peso_max)
-                        continue
-                break
+                        candidatos.append((u, v))
+                for w in range(v + 1, self.n):
+                    if self.matriz[v][w] == 0:
+                        candidatos.append((v, w))
+
+                if not candidatos:
+                    break
+
+                origen_nuevo, destino_nuevo = random.choice(candidatos)
+                self.matriz[origen_nuevo][destino_nuevo] = random.randint(peso_min, peso_max)
 
     def obtener_aristas(self):
         """Devuelve una lista de tuplas (origen, destino, peso)."""

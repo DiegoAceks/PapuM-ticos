@@ -119,6 +119,16 @@ def construir_grafo_networkx(grafo):
 
 
 def calcular_layout(grafo):
+    """
+    Calcula la posición de los nodos mediante un layout jerárquico propio
+    (sin depender de librerías externas como Graphviz): cada nodo se ubica
+    en una columna según la longitud del camino más largo que llega a él
+    desde algún nodo sin predecesores (su "nivel"), y los nodos de un
+    mismo nivel se distribuyen verticalmente. Cuando un nivel tiene un
+    solo nodo, se aplica un pequeño desplazamiento en zigzag para evitar
+    que cadenas largas queden perfectamente alineadas, lo que haría que
+    las aristas "salteadas" se superpongan visualmente con las directas.
+    """
     niveles = [0] * grafo.n
     for v in range(grafo.n):
         for u in range(v):
@@ -150,12 +160,13 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
                font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; }
   #wrap { box-sizing: border-box; border: 1px solid #E2E8F0; border-radius: 14px;
           background: #FFFFFF; overflow: hidden; }
-  #bar { box-sizing: border-box; height: 30px; display: flex; justify-content: space-between;
+  #bar { box-sizing: border-box; height: 32px; display: flex; justify-content: space-between;
          align-items: center; gap: 8px; padding: 0 10px; font-size: 12px; color: #64748B;
          border-bottom: 1px solid #F1F5F9; }
-  #reset { font: inherit; color: #475569; background: #F5F3FF; border: 1px solid #DDD6FE;
-           border-radius: 8px; padding: 2px 10px; cursor: pointer; }
-  #reset:hover { background: #EDE9FE; }
+  .btns { display: flex; gap: 6px; align-items: center; }
+  .btn-bar { font: inherit; color: #475569; background: #F5F3FF; border: 1px solid #DDD6FE;
+             border-radius: 8px; padding: 2px 10px; cursor: pointer; }
+  .btn-bar:hover { background: #EDE9FE; }
   svg { display: block; width: 100%; height: __ALTURA__px; user-select: none; -webkit-user-select: none; }
   .node { cursor: grab; touch-action: none; }
   .node.drag { cursor: grabbing; }
@@ -165,7 +176,10 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
 <div id="wrap">
   <div id="bar">
     <span>🖱️ Arrastra los nodos para ordenarlos (opcional)</span>
-    <button id="reset" type="button">↺ Restablecer posiciones</button>
+    <div class="btns">
+      <button id="fs" class="btn-bar" type="button" title="Abrir pizarra en pantalla completa">⛶ Pantalla completa</button>
+      <button id="reset" class="btn-bar" type="button">↺ Restablecer posiciones</button>
+    </div>
   </div>
   <svg id="g" viewBox="0 0 800 __ALTURA__" role="img" aria-label="Grafo dirigido con pesos"></svg>
 </div>
@@ -173,9 +187,11 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
 (function () {
   var D = __DATOS__;
   var NS = "http://www.w3.org/2000/svg";
-  var H = __ALTURA__, PX = 44, PY = 40, R = 22, GAP = 3;
+  var H_BASE = __ALTURA__;
+  var H = H_BASE, PX = 44, PY = 40, R = 22, GAP = 3;
   var wrap = document.getElementById("wrap");
   var svg = document.getElementById("g");
+  var btnFs = document.getElementById("fs");
   var N = D.n, W = 800;
 
   function el(tag, attrs, parent) {
@@ -186,6 +202,7 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
   }
   function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
 
+  // Posición inicial: el layout jerárquico calculado en Python, normalizado a 0..1.
   var xs = D.pos.map(function (p) { return p[0]; });
   var ys = D.pos.map(function (p) { return p[1]; });
   var minx = Math.min.apply(null, xs), maxx = Math.max.apply(null, xs);
@@ -195,6 +212,7 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
             maxy > miny ? 1 - (p[1] - miny) / (maxy - miny) : 0.5];
   });
 
+  // Las posiciones movidas por el usuario se guardan en el navegador (si está permitido).
   function cargar() {
     try {
       var s = localStorage.getItem(D.key);
@@ -205,17 +223,18 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
       })) {
         return a.map(function (p) { return [clamp(+p[0], 0, 1), clamp(+p[1], 0, 1)]; });
       }
-    } catch (e) { }
+    } catch (e) { /* sin almacenamiento: se usa la posición por defecto */ }
     return null;
   }
   function guardar() {
-    try { localStorage.setItem(D.key, JSON.stringify(pos)); } catch (e) { }
+    try { localStorage.setItem(D.key, JSON.stringify(pos)); } catch (e) { /* ignorar */ }
   }
   var pos = cargar() || defecto.map(function (p) { return p.slice(); });
 
   function px(i) { return PX + pos[i][0] * (W - 2 * PX); }
   function py(i) { return PY + pos[i][1] * (H - 2 * PY); }
 
+  // Puntas de flecha (una normal y una más grande para los caminos mínimos).
   var defs = el("defs", {}, svg);
   function marcador(id, color, L) {
     var m = el("marker", { id: id, viewBox: "0 0 10 10", refX: 0, refY: 5,
@@ -229,6 +248,7 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
   var capaEtiquetas = el("g", {}, svg);
   var capaNodos = el("g", {}, svg);
 
+  // Los caminos resaltados se dibujan al final para quedar por encima.
   var aristas = D.edges.slice().sort(function (a, b) {
     return (a.hl ? 1 : 0) - (b.hl ? 1 : 0);
   }).map(function (e) {
@@ -261,17 +281,18 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
     return g;
   });
 
+  // Las flechas y los pesos siguen a los nodos: se recalculan a partir de sus posiciones.
   function actualizarAristas() {
     aristas.forEach(function (a) {
       var x1 = px(a.e.u), y1 = py(a.e.u), x2 = px(a.e.v), y2 = py(a.e.v);
       var dx = x2 - x1, dy = y2 - y1, d = Math.sqrt(dx * dx + dy * dy);
-      if (d < 2 * (R + GAP) + a.AL + 2) {
+      if (d < 2 * (R + GAP) + a.AL + 2) {          // nodos casi encimados: no cabe la flecha
         a.linea.style.display = "none"; a.g.style.display = "none"; return;
       }
       a.linea.style.display = ""; a.g.style.display = "";
       var ux = dx / d, uy = dy / d;
-      var sx = x1 + ux * (R + GAP), sy = y1 + uy * (R + GAP);
-      var tx = x2 - ux * (R + GAP), ty = y2 - uy * (R + GAP);
+      var sx = x1 + ux * (R + GAP), sy = y1 + uy * (R + GAP);   // borde del nodo origen
+      var tx = x2 - ux * (R + GAP), ty = y2 - uy * (R + GAP);   // punta, en el borde del destino
       a.linea.setAttribute("x1", sx); a.linea.setAttribute("y1", sy);
       a.linea.setAttribute("x2", tx - ux * a.AL); a.linea.setAttribute("y2", ty - uy * a.AL);
       a.g.setAttribute("transform", "translate(" + (sx + tx) / 2 + "," + (sy + ty) / 2 + ")");
@@ -285,13 +306,17 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
   }
   function ajustarAncho() {
     var w = Math.max(wrap.clientWidth, 320);
-    if (w !== W || !svg.getAttribute("data-ok")) {
+    var h = document.fullscreenElement === wrap ? (window.innerHeight - 34) : H_BASE;
+    if (w !== W || h !== H || !svg.getAttribute("data-ok")) {
       W = w;
+      H = h;
+      svg.style.height = H + "px";
       svg.setAttribute("viewBox", "0 0 " + W + " " + H);
       svg.setAttribute("data-ok", "1");
     }
   }
 
+  // Arrastre con mouse o dedo (pointer events).
   var arr = null;
   function puntoSVG(ev) {
     var m = svg.getScreenCTM && svg.getScreenCTM();
@@ -307,9 +332,9 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
     ev.preventDefault();
     arr = { i: i, g: g, dx: px(i) - p.x, dy: py(i) - p.y };
     g.classList.add("drag");
-    capaNodos.appendChild(g);
+    capaNodos.appendChild(g);                       // el nodo arrastrado queda al frente
     if (g.setPointerCapture && ev.pointerId !== undefined) {
-      try { g.setPointerCapture(ev.pointerId); } catch (e) { }
+      try { g.setPointerCapture(ev.pointerId); } catch (e) { /* ignorar */ }
     }
   }
   function mover(ev) {
@@ -330,8 +355,20 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
 
   document.getElementById("reset").addEventListener("click", function () {
     pos = defecto.map(function (p) { return p.slice(); });
-    try { localStorage.removeItem(D.key); } catch (e) { }
+    try { localStorage.removeItem(D.key); } catch (e) { /* ignorar */ }
     dibujar();
+  });
+
+  btnFs.addEventListener("click", function () {
+    if (!document.fullscreenElement) {
+      if (wrap.requestFullscreen) { wrap.requestFullscreen(); }
+    } else {
+      if (document.exitFullscreen) { document.exitFullscreen(); }
+    }
+  });
+  document.addEventListener("fullscreenchange", function () {
+    btnFs.textContent = document.fullscreenElement === wrap ? "🗗 Salir de pantalla completa" : "⛶ Pantalla completa";
+    alRedimensionar();
   });
 
   function alRedimensionar() { ajustarAncho(); dibujar(); }
@@ -344,6 +381,8 @@ _HTML_GRAFO = r"""<!DOCTYPE html>
 
 
 def _mostrar_html(html, alto):
+    """Muestra HTML en un iframe: st.iframe (Streamlit actual) o, en versiones
+    antiguas, components.html."""
     if hasattr(st, "iframe"):
         st.iframe(html, height=alto)
     else:
@@ -354,6 +393,13 @@ def _mostrar_html(html, alto):
 def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
                    visitados=None, aristas_resaltadas=None, distancias=None,
                    key=None, expandido=False):
+    """
+    Dibuja el grafo como un SVG interactivo: los nodos se pueden arrastrar con
+    el mouse (o el dedo) y las flechas y los pesos los siguen. Es opcional: si
+    no se mueve nada, se ve el layout jerárquico calculado en calcular_layout.
+    Las posiciones movidas se recuerdan en el navegador mientras el grafo (sus
+    conexiones) no cambie, así que se conservan entre pasos y pestañas.
+    """
     visitados = visitados or []
     aristas_resaltadas = set(aristas_resaltadas or [])
 
@@ -381,6 +427,7 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
         {"u": u, "v": v, "w": peso, "hl": (u, v) in aristas_resaltadas}
         for u, v, peso in grafo.obtener_aristas()
     ]
+    # Las posiciones guardadas dependen solo de las conexiones del grafo.
     firma = hashlib.md5(
         ",".join(f"{a['u']}-{a['v']}" for a in aristas).encode()
     ).hexdigest()[:10]
@@ -393,15 +440,14 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
         "edges": aristas,
         "colores": {"arista": COLOR["arista"], "resaltada": COLOR["arista_resaltada"]},
     }
-    
-    altura = 700 if expandido else 420
+    altura = 680 if expandido else 420
     html = (
         _HTML_GRAFO
         .replace("__KEY__", str(key))
         .replace("__ALTURA__", str(altura))
         .replace("__DATOS__", json.dumps(datos).replace("<", "\u003c"))
     )
-    _mostrar_html(html, altura + 36)
+    _mostrar_html(html, altura + 38)
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +457,7 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
 for clave, valor in {
     "grafo": None, "layout": None, "pasos_dijkstra": None, "paso_actual": 0,
     "origen_prev": None, "destino_prev": None, "etiquetas_nodos": None,
+    "pizarra_expandida": False,
 }.items():
     if clave not in st.session_state:
         st.session_state[clave] = valor
@@ -466,7 +513,7 @@ with st.sidebar:
     st.divider()
 
     if modo.startswith("🎲"):
-        st.caption("Genera un grafo dirigido y acíclico con aristas y pesos al azar.")
+        st.caption("Genera un grafo dirigido y acíclico con aristas y pesos al azar (mínimo 2 conexiones por nodo).")
         densidad = st.slider(
             "Densidad de conexiones", 0.1, 0.8, 0.4, 0.05,
             help="Una densidad más baja genera grafos más simples y fáciles de leer; "
@@ -540,20 +587,25 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------------------------
-# Encabezado principal y botón de expansión
+# Encabezado y botón para expandir la pizarra
 # ---------------------------------------------------------------------------
 
-col_tit, col_exp = st.columns([3, 1])
-with col_tit:
+col_titulo, col_boton_exp = st.columns([3, 1.2])
+with col_titulo:
     st.markdown(
         f"<h1>🧭 Problema del camino mínimo</h1>"
         f"<p style='color:#64748B; margin-top:-8px;'>Algoritmo de Dijkstra sobre un grafo dirigido y acíclico — "
         f"ejecución interactiva, paso a paso.</p>",
         unsafe_allow_html=True,
     )
-with col_exp:
-    st.markdown("<br>", unsafe_allow_html=True)
-    expandido = st.toggle("🗖 Expandir pizarra del grafo", value=False)
+with col_boton_exp:
+    st.write("")
+    texto_btn = "🗗 Contraer pizarra del grafo" if st.session_state.pizarra_expandida else "🗖 Expandir pizarra del grafo"
+    if st.button(texto_btn, width="stretch"):
+        st.session_state.pizarra_expandida = not st.session_state.pizarra_expandida
+        st.rerun()
+
+expandido = st.session_state.pizarra_expandida
 
 grafo = st.session_state.grafo
 
@@ -574,38 +626,40 @@ tab_grafo, tab_ejecucion, tab_resultado = st.tabs(
 # ---------------------------------------------------------------------------
 
 with tab_grafo:
-    col_sel, col_vis = st.columns([1, 2] if not expandido else [1, 3])
+    if expandido:
+        col_s1, col_s2, col_s3 = st.columns([1, 1, 1.5])
+        with col_s1:
+            origen = st.selectbox(
+                "Vértice origen",
+                options=list(range(grafo.n)),
+                format_func=nombre_nodo,
+                key="origen_sel",
+            )
+        with col_s2:
+            destino = st.selectbox(
+                "Vértice destino",
+                options=list(range(grafo.n)),
+                index=grafo.n - 1,
+                format_func=nombre_nodo,
+                key="destino_sel",
+            )
+        with col_s3:
+            if (origen, destino) != (st.session_state.origen_prev, st.session_state.destino_prev):
+                reiniciar_ejecucion()
+                st.session_state.origen_prev = origen
+                st.session_state.destino_prev = destino
 
-    with col_sel:
-        st.markdown("#### Selecciona los vértices")
-        origen = st.selectbox(
-            "Vértice origen",
-            options=list(range(grafo.n)),
-            format_func=nombre_nodo,
-            key="origen_sel",
-        )
-        destino = st.selectbox(
-            "Vértice destino",
-            options=list(range(grafo.n)),
-            index=grafo.n - 1,
-            format_func=nombre_nodo,
-            key="destino_sel",
-        )
+            if origen == destino:
+                st.warning("⚠️ El vértice origen y destino no pueden ser el mismo.")
+            elif not existe_camino(grafo, origen, destino):
+                st.error("❌ No existe ningún camino entre el origen y el destino seleccionados.")
+            else:
+                st.success("✅ Existe conexión entre ambos vértices. Ve a la pestaña **2** para ejecutar Dijkstra.")
 
-        if (origen, destino) != (st.session_state.origen_prev, st.session_state.destino_prev):
-            reiniciar_ejecucion()
-            st.session_state.origen_prev = origen
-            st.session_state.destino_prev = destino
+        leyenda_grafo()
+        dibujar_grafo(grafo, layout, origen=origen, destino=destino, key="grafo_tab1", expandido=True)
 
-        if origen == destino:
-            st.warning("⚠️ El vértice origen y destino no pueden ser el mismo.")
-        elif not existe_camino(grafo, origen, destino):
-            st.error("❌ No existe ningún camino entre el origen y el destino seleccionados.")
-        else:
-            st.success("✅ Existe conexión entre ambos vértices. Ve a la pestaña **2** para ejecutar Dijkstra.")
-
-        st.markdown("#### Matriz de adyacencia")
-        with st.expander("Ver matriz", expanded=False):
+        with st.expander("Ver matriz de adyacencia", expanded=False):
             etiquetas_actuales = [nombre_nodo(i) for i in range(grafo.n)]
             df_matriz = pd.DataFrame(
                 [[grafo.matriz[i][j] for j in range(grafo.n)] for i in range(grafo.n)],
@@ -613,10 +667,50 @@ with tab_grafo:
                 columns=etiquetas_actuales,
             )
             st.dataframe(df_matriz, width="stretch")
+    else:
+        col_sel, col_vis = st.columns([1, 2])
 
-    with col_vis:
-        leyenda_grafo()
-        dibujar_grafo(grafo, layout, origen=origen, destino=destino, key="grafo_tab1", expandido=expandido)
+        with col_sel:
+            st.markdown("#### Selecciona los vértices")
+            origen = st.selectbox(
+                "Vértice origen",
+                options=list(range(grafo.n)),
+                format_func=nombre_nodo,
+                key="origen_sel",
+            )
+            destino = st.selectbox(
+                "Vértice destino",
+                options=list(range(grafo.n)),
+                index=grafo.n - 1,
+                format_func=nombre_nodo,
+                key="destino_sel",
+            )
+
+            if (origen, destino) != (st.session_state.origen_prev, st.session_state.destino_prev):
+                reiniciar_ejecucion()
+                st.session_state.origen_prev = origen
+                st.session_state.destino_prev = destino
+
+            if origen == destino:
+                st.warning("⚠️ El vértice origen y destino no pueden ser el mismo.")
+            elif not existe_camino(grafo, origen, destino):
+                st.error("❌ No existe ningún camino entre el origen y el destino seleccionados.")
+            else:
+                st.success("✅ Existe conexión entre ambos vértices. Ve a la pestaña **2** para ejecutar Dijkstra.")
+
+            st.markdown("#### Matriz de adyacencia")
+            with st.expander("Ver matriz", expanded=False):
+                etiquetas_actuales = [nombre_nodo(i) for i in range(grafo.n)]
+                df_matriz = pd.DataFrame(
+                    [[grafo.matriz[i][j] for j in range(grafo.n)] for i in range(grafo.n)],
+                    index=etiquetas_actuales,
+                    columns=etiquetas_actuales,
+                )
+                st.dataframe(df_matriz, width="stretch")
+
+        with col_vis:
+            leyenda_grafo()
+            dibujar_grafo(grafo, layout, origen=origen, destino=destino, key="grafo_tab1", expandido=False)
 
 # ---------------------------------------------------------------------------
 # Pestaña 2: Ejecución paso a paso
@@ -656,7 +750,11 @@ with tab_ejecucion:
                     st.rerun()
 
             idx = st.session_state.paso_actual
-            col_izq, col_der = st.columns([1, 1.2])
+            if expandido:
+                col_der = st.container()
+                col_izq = st.container()
+            else:
+                col_izq, col_der = st.columns([1, 1.2])
 
             if idx == 0:
                 m1, m2, m3 = st.columns(3)
