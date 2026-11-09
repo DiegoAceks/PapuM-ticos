@@ -25,18 +25,24 @@ class Grafo:
         self.n = n
         self.matriz = [[0 for _ in range(n)] for _ in range(n)]
 
-    def grado(self, nodo):
-        """Devuelve el número total de conexiones (entrantes + salientes) del nodo."""
-        entrantes = sum(1 for i in range(self.n) if self.matriz[i][nodo] != 0)
-        salientes = sum(1 for j in range(self.n) if self.matriz[nodo][j] != 0)
-        return entrantes + salientes
+    def grado_salida(self, nodo):
+        """Devuelve el número de aristas que salen de 'nodo'."""
+        return sum(1 for j in range(self.n) if self.matriz[nodo][j] != 0)
+
+    def grado_entrada(self, nodo):
+        """Devuelve el número de aristas que entran a 'nodo'."""
+        return sum(1 for i in range(self.n) if self.matriz[i][nodo] != 0)
+
+    def grado_total(self, nodo):
+        """Devuelve el total de aristas conectadas (entrantes + salientes)."""
+        return self.grado_entrada(nodo) + self.grado_salida(nodo)
 
     def agregar_arista(self, origen, destino, peso):
         """
         Agrega una arista dirigida origen -> destino con el peso dado.
         Solo se permite si origen < destino, para garantizar que el
         grafo resultante sea acíclico por construcción.
-        Además, limita a un máximo de 3 aristas totales por nodo.
+        Además, limita a un máximo de 3 aristas salientes y 3 entrantes por nodo.
         """
         if origen == destino:
             raise ValueError("No se permiten auto-ciclos (origen == destino).")
@@ -49,65 +55,83 @@ class Grafo:
         if peso <= 0:
             raise ValueError("El peso de la arista debe ser un número positivo.")
 
-        # Si no existe la arista, verificar que ninguno de los dos nodos supere las 3 conexiones
+        # Si no existe la arista, verificar límites de 3 aristas salientes y 3 entrantes
         if self.matriz[origen][destino] == 0:
-            if self.grado(origen) >= 3:
-                raise ValueError(f"El nodo {origen} ya tiene 3 conexiones (máximo permitido).")
-            if self.grado(destino) >= 3:
-                raise ValueError(f"El nodo {destino} ya tiene 3 conexiones (máximo permitido).")
+            if self.grado_salida(origen) >= 3:
+                raise ValueError(f"El nodo {origen} ya tiene 3 aristas salientes (máximo permitido: 3).")
+            if self.grado_entrada(destino) >= 3:
+                raise ValueError(f"El nodo {destino} ya tiene 3 aristas entrantes (máximo permitido: 3).")
 
         self.matriz[origen][destino] = peso
 
     def generar_aleatorio(self, densidad=0.4, peso_min=1, peso_max=20):
         """
-        Genera un grafo aleatorio dirigido y acíclico asegurando que cada nodo
-        tenga como mínimo 2 conexiones y como máximo 3 conexiones totales
-        (aristas incidentes: entrantes + salientes entre 2 y 3).
+        Genera un grafo aleatorio dirigido y acíclico donde:
+        - Cada nodo tiene como MÁXIMO 3 aristas salientes.
+        - Cada nodo tiene como MÁXIMO 3 aristas entrantes.
+        - Cada nodo tiene como MÍNIMO 2 conexiones en total (entrantes + salientes >= 2).
         """
-        self.limpiar()
+        for intento in range(150):
+            self.limpiar()
 
-        # Construcción inicial respetando el límite máximo de 3 conexiones por nodo
-        pares = [(i, j) for i in range(self.n) for j in range(i + 1, self.n)]
-        random.shuffle(pares)
-        for i, j in pares:
-            if random.random() < densidad:
-                if self.grado(i) < 3 and self.grado(j) < 3:
+            # 1. Asegurar al menos una arista saliente para cada nodo (salvo el último)
+            for i in range(self.n - 1):
+                posibles = [j for j in range(i + 1, self.n) if self.grado_entrada(j) < 3]
+                if posibles:
+                    j = random.choice(posibles)
                     self.matriz[i][j] = random.randint(peso_min, peso_max)
 
-        # 1. Asegurar al menos una arista saliente (salvo el último nodo)
-        for i in range(self.n - 1):
-            salientes = sum(1 for j in range(i + 1, self.n) if self.matriz[i][j] != 0)
-            if salientes == 0 and self.grado(i) < 3:
-                candidatos = [j for j in range(i + 1, self.n) if self.matriz[i][j] == 0 and self.grado(j) < 3]
-                if candidatos:
-                    j = random.choice(candidatos)
-                    self.matriz[i][j] = random.randint(peso_min, peso_max)
+            # 2. Asegurar al menos una arista entrante para cada nodo (salvo el primero)
+            for j in range(1, self.n):
+                if self.grado_entrada(j) == 0:
+                    posibles = [i for i in range(j) if self.grado_salida(i) < 3]
+                    if posibles:
+                        i = random.choice(posibles)
+                        self.matriz[i][j] = random.randint(peso_min, peso_max)
 
-        # 2. Asegurar al menos una arista entrante (salvo el primer nodo)
-        for j in range(1, self.n):
-            entrantes = sum(1 for i in range(j) if self.matriz[i][j] != 0)
-            if entrantes == 0 and self.grado(j) < 3:
-                candidatos = [i for i in range(j) if self.matriz[i][j] == 0 and self.grado(i) < 3]
-                if candidatos:
-                    i = random.choice(candidatos)
-                    self.matriz[i][j] = random.randint(peso_min, peso_max)
+            # 3. Agregar aristas adicionales según densidad respetando el tope de 3 salientes y 3 entrantes
+            pares = [
+                (i, j) for i in range(self.n) for j in range(i + 1, self.n)
+                if self.matriz[i][j] == 0
+            ]
+            random.shuffle(pares)
+            for i, j in pares:
+                if random.random() < densidad:
+                    if self.grado_salida(i) < 3 and self.grado_entrada(j) < 3:
+                        self.matriz[i][j] = random.randint(peso_min, peso_max)
 
-        # 3. Asegurar que ningún nodo quede con menos de 2 conexiones, sin superar 3
-        for v in range(self.n):
-            while self.grado(v) < 2:
-                candidatos = []
-                for u in range(v):
-                    if self.matriz[u][v] == 0 and self.grado(u) < 3:
-                        candidatos.append((u, v))
-                for w in range(v + 1, self.n):
-                    if self.matriz[v][w] == 0 and self.grado(w) < 3:
-                        candidatos.append((v, w))
+            # 4. Asegurar que ningún nodo quede con menos de 2 conexiones totales
+            for v in range(self.n):
+                while self.grado_total(v) < 2:
+                    cands = []
+                    if self.grado_salida(v) < 3:
+                        for w in range(v + 1, self.n):
+                            if self.matriz[v][w] == 0 and self.grado_entrada(w) < 3:
+                                cands.append((v, w))
+                    if self.grado_entrada(v) < 3:
+                        for u in range(v):
+                            if self.matriz[u][v] == 0 and self.grado_salida(u) < 3:
+                                cands.append((u, v))
+                    if not cands:
+                        break
+                    u_sel, w_sel = random.choice(cands)
+                    self.matriz[u_sel][w_sel] = random.randint(peso_min, peso_max)
 
-                if not candidatos:
+            # 5. Validar que cumpla todas las restricciones
+            valido = True
+            for v in range(self.n):
+                if self.grado_salida(v) > 3 or self.grado_entrada(v) > 3 or self.grado_total(v) < 2:
+                    valido = False
+                    break
+                if v < self.n - 1 and self.grado_salida(v) == 0:
+                    valido = False
+                    break
+                if v > 0 and self.grado_entrada(v) == 0:
+                    valido = False
                     break
 
-                origen_nuevo, destino_nuevo = random.choice(candidatos)
-                self.matriz[origen_nuevo][destino_nuevo] = random.randint(peso_min, peso_max)
+            if valido:
+                return
 
     def obtener_aristas(self):
         """Devuelve una lista de tuplas (origen, destino, peso)."""
