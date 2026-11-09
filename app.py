@@ -13,6 +13,7 @@ import time
 
 import streamlit as st
 import networkx as nx
+import pandas as pd
 
 from grafo import Grafo
 from conectividad import existe_camino
@@ -95,6 +96,14 @@ def leyenda_grafo():
         for c, t in items
     ) + "</div>"
     st.markdown(html, unsafe_allow_html=True)
+
+
+def nombre_nodo(i):
+    """Devuelve la etiqueta personalizada (letra o número) del nodo con índice i."""
+    etiquetas = st.session_state.get("etiquetas_nodos", [])
+    if 0 <= i < len(etiquetas):
+        return str(etiquetas[i])
+    return str(i)
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +384,7 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
 
     nodos = []
     for i in range(grafo.n):
+        etiqueta = nombre_nodo(i)
         if i == origen:
             fill = COLOR["origen"]
         elif i == destino:
@@ -386,11 +396,11 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
         else:
             fill = COLOR["pendiente"]
         borde = "#1E293B" if i in (origen, destino, actual) else "#94A3B8"
-        info = f"Vértice {i}"
+        info = f"Vértice {etiqueta}"
         if distancias is not None:
             d = distancias[i]
             info += f"\nDistancia mínima: {'∞' if d == INFINITO else d}"
-        nodos.append({"id": i, "fill": fill, "stroke": borde, "tip": info})
+        nodos.append({"id": etiqueta, "fill": fill, "stroke": borde, "tip": info})
 
     aristas = [
         {"u": u, "v": v, "w": peso, "hl": (u, v) in aristas_resaltadas}
@@ -412,7 +422,7 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
     html = (
         _HTML_GRAFO
         .replace("__KEY__", str(key))
-        .replace("__DATOS__", json.dumps(datos).replace("<", "\\u003c"))
+        .replace("__DATOS__", json.dumps(datos).replace("<", "\u003c"))
     )
     _mostrar_html(html, 456)
 
@@ -423,7 +433,7 @@ def dibujar_grafo(grafo, layout, origen=None, destino=None, actual=None,
 
 for clave, valor in {
     "grafo": None, "layout": None, "pasos_dijkstra": None, "paso_actual": 0,
-    "origen_prev": None, "destino_prev": None,
+    "origen_prev": None, "destino_prev": None, "etiquetas_nodos": None,
 }.items():
     if clave not in st.session_state:
         st.session_state[clave] = valor
@@ -441,7 +451,11 @@ def reiniciar_ejecucion():
 with st.sidebar:
     st.markdown("### ⚙️ Configuración del grafo")
     n = st.number_input("Número de nodos (n)", min_value=7, max_value=16, value=7, step=1)
-    modo = st.radio("Modo de generación", ["🎲 Aleatorio", "✍️ Manual"], horizontal=False)
+    formato_etiquetas = st.radio(
+        "Etiquetas de los vértices",
+        ["🔤 Letras (A, B, C...)", "🔢 Números (0, 1, 2...)", "✏️ Personalizado"],
+        horizontal=False,
+    )
 
     if st.session_state.grafo is None or st.session_state.grafo.n != int(n):
         st.session_state.grafo = Grafo(int(n))
@@ -449,6 +463,28 @@ with st.sidebar:
         reiniciar_ejecucion()
 
     grafo = st.session_state.grafo
+
+    if formato_etiquetas.startswith("🔤"):
+        st.session_state.etiquetas_nodos = [chr(65 + i) for i in range(int(n))]
+    elif formato_etiquetas.startswith("🔢"):
+        st.session_state.etiquetas_nodos = [str(i) for i in range(int(n))]
+    else:
+        por_defecto = ", ".join(chr(65 + i) for i in range(int(n)))
+        texto_etiquetas = st.text_input(
+            "Nombres separados por coma (letras o números)",
+            value=por_defecto,
+            help="Ingresa exactamente n etiquetas separadas por coma (ej: A, B, C, 1, 2...).",
+        )
+        partes = [p.strip() for p in texto_etiquetas.split(",") if p.strip()]
+        etiquetas_limpias = []
+        for i in range(int(n)):
+            candidato = partes[i] if i < len(partes) else chr(65 + i)
+            if candidato in etiquetas_limpias:
+                candidato = f"{candidato}_{i}"
+            etiquetas_limpias.append(candidato)
+        st.session_state.etiquetas_nodos = etiquetas_limpias
+
+    modo = st.radio("Modo de generación", ["🎲 Aleatorio", "✍️ Manual"], horizontal=False)
 
     st.divider()
 
@@ -473,15 +509,26 @@ with st.sidebar:
 
     else:
         st.caption(
-            "Toda arista debe ir de un nodo con índice menor a uno con índice "
-            "mayor (i < j), lo que garantiza que el grafo sea dirigido y "
+            "Toda arista debe ir de un nodo con orden menor a uno con orden "
+            "mayor (ej. A → B o 0 → 1), lo que garantiza que el grafo sea dirigido y "
             "acíclico por construcción."
         )
         col1, col2, col3 = st.columns(3)
         with col1:
-            o = st.number_input("Origen", min_value=0, max_value=int(n) - 2, value=0)
+            o = st.selectbox(
+                "Origen",
+                options=list(range(int(n) - 1)),
+                index=0,
+                format_func=nombre_nodo,
+            )
         with col2:
-            d = st.number_input("Destino", min_value=int(o) + 1, max_value=int(n) - 1, value=int(n) - 1)
+            opciones_d = list(range(int(o) + 1, int(n)))
+            d = st.selectbox(
+                "Destino",
+                options=opciones_d,
+                index=len(opciones_d) - 1,
+                format_func=nombre_nodo,
+            )
         with col3:
             p = st.number_input("Peso", min_value=1, value=1)
 
@@ -490,14 +537,14 @@ with st.sidebar:
                 grafo.agregar_arista(int(o), int(d), int(p))
                 st.session_state.layout = None
                 reiniciar_ejecucion()
-                st.success(f"Arista agregada: {o} → {d} (peso {p})")
+                st.success(f"Arista agregada: {nombre_nodo(int(o))} → {nombre_nodo(int(d))} (peso {p})")
             except ValueError as e:
                 st.error(str(e))
 
         aristas_actuales = grafo.obtener_aristas()
         if aristas_actuales:
             st.write("**Aristas actuales:**")
-            opciones = [f"{i} → {j}  (peso {w})" for i, j, w in aristas_actuales]
+            opciones = [f"{nombre_nodo(i)} → {nombre_nodo(j)}  (peso {w})" for i, j, w in aristas_actuales]
             seleccion = st.selectbox("Eliminar una arista", opciones)
             if st.button("🗑️ Eliminar arista seleccionada", width="stretch"):
                 idx = opciones.index(seleccion)
@@ -549,10 +596,18 @@ with tab_grafo:
 
     with col_sel:
         st.markdown("#### Selecciona los vértices")
-        origen = st.selectbox("Vértice origen", options=list(range(grafo.n)), key="origen_sel")
+        origen = st.selectbox(
+            "Vértice origen",
+            options=list(range(grafo.n)),
+            format_func=nombre_nodo,
+            key="origen_sel",
+        )
         destino = st.selectbox(
-            "Vértice destino", options=list(range(grafo.n)),
-            index=grafo.n - 1, key="destino_sel"
+            "Vértice destino",
+            options=list(range(grafo.n)),
+            index=grafo.n - 1,
+            format_func=nombre_nodo,
+            key="destino_sel",
         )
 
         if (origen, destino) != (st.session_state.origen_prev, st.session_state.destino_prev):
@@ -569,10 +624,13 @@ with tab_grafo:
 
         st.markdown("#### Matriz de adyacencia")
         with st.expander("Ver matriz", expanded=False):
-            st.dataframe(
+            etiquetas_actuales = [nombre_nodo(i) for i in range(grafo.n)]
+            df_matriz = pd.DataFrame(
                 [[grafo.matriz[i][j] for j in range(grafo.n)] for i in range(grafo.n)],
-                width="stretch",
+                index=etiquetas_actuales,
+                columns=etiquetas_actuales,
             )
+            st.dataframe(df_matriz, width="stretch")
 
     with col_vis:
         leyenda_grafo()
@@ -642,7 +700,7 @@ with tab_ejecucion:
                 paso = pasos[idx - 1]
 
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Nodo procesado", paso.nodo_actual)
+                m1.metric("Nodo procesado", nombre_nodo(paso.nodo_actual))
                 m2.metric("Visitados", sum(paso.visitados))
                 m3.metric("Iteración", f"{paso.iteracion} / {total_pasos}")
 
@@ -657,13 +715,13 @@ with tab_ejecucion:
                     for v, dist in candidatos:
                         dist_str = "∞" if dist == INFINITO else str(dist)
                         filas_candidatos.append({
-                            "Vértice": v,
+                            "Vértice": nombre_nodo(v),
                             "Distancia tentativa": dist_str,
                             "Seleccionado": "✓" if v == paso.nodo_actual else "",
                         })
                     st.table(filas_candidatos)
                     st.markdown(
-                        f"➡️ Se elige el vértice **{paso.nodo_actual}** por tener la menor "
+                        f"➡️ Se elige el vértice **{nombre_nodo(paso.nodo_actual)}** por tener la menor "
                         "distancia tentativa entre los candidatos no visitados."
                     )
 
@@ -671,17 +729,17 @@ with tab_ejecucion:
                         st.caption("Actualizaciones de distancia en esta iteración:")
                         for vecino, anterior, nueva in paso.actualizaciones:
                             anterior_str = "∞" if anterior == INFINITO else anterior
-                            st.write(f"- Vértice **{vecino}**: distancia {anterior_str} → **{nueva}**")
+                            st.write(f"- Vértice **{nombre_nodo(vecino)}**: distancia {anterior_str} → **{nueva}**")
                     else:
                         st.caption("No hubo actualizaciones de distancia en esta iteración.")
 
                     with st.expander(f"📜 Historial completo (iteraciones 1 a {idx})"):
                         for p in pasos[:idx]:
                             detalle = (
-                                ", ".join(f"{v}→{nueva}" for v, _, nueva in p.actualizaciones)
+                                ", ".join(f"{nombre_nodo(v)}→{nueva}" for v, _, nueva in p.actualizaciones)
                                 if p.actualizaciones else "sin actualizaciones"
                             )
-                            st.write(f"**Iteración {p.iteracion}:** visita el vértice {p.nodo_actual}. ({detalle})")
+                            st.write(f"**Iteración {p.iteracion}:** visita el vértice {nombre_nodo(p.nodo_actual)}. ({detalle})")
 
                 with col_der:
                     leyenda_grafo()
@@ -696,7 +754,7 @@ with tab_ejecucion:
                     for v in range(grafo.n):
                         dist_str = "∞" if paso.distancias[v] == INFINITO else str(paso.distancias[v])
                         tabla.append({
-                            "Vértice": v,
+                            "Vértice": nombre_nodo(v),
                             "Distancia mínima": dist_str,
                             "Visitado": "✅" if paso.visitados[v] else "—",
                         })
@@ -737,7 +795,7 @@ with tab_resultado:
             st.markdown("#### Caminos mínimos encontrados")
             for i, camino in enumerate(caminos, start=1):
                 st.markdown(f"**Camino {i}:** " + " → ".join(
-                    f"`{v}`" for v in camino
+                    f"`{nombre_nodo(v)}`" for v in camino
                 ))
 
             aristas_resaltadas = []
@@ -757,12 +815,12 @@ with tab_resultado:
 
             resumen = (
                 f"Problema del camino mínimo - Algoritmo de Dijkstra\n"
-                f"Vértice origen: {origen}\n"
-                f"Vértice destino: {destino}\n"
+                f"Vértice origen: {nombre_nodo(origen)}\n"
+                f"Vértice destino: {nombre_nodo(destino)}\n"
                 f"Distancia mínima: {distancias[destino]}\n"
                 f"Cantidad de caminos mínimos: {len(caminos)}\n\n"
                 + "\n".join(
-                    f"Camino {i}: {' -> '.join(map(str, c))}"
+                    f"Camino {i}: {' -> '.join(nombre_nodo(v) for v in c)}"
                     for i, c in enumerate(caminos, start=1)
                 )
             )
